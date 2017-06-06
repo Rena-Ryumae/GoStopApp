@@ -340,12 +340,26 @@ local gameMatLoc = {
 		x = display.contentCenterX + 40,
 		y = display.contentCenterY + 20
 	},
+}
 
+local gameInfo = {
+    plrInfo = {
+        go = 0,
+        pt = 0,
+        three = false
+    },
+    oppInfo = {
+        go = 0,
+        pt = 0,
+        three = false
+    },
 }
 
 -- Initialize variables
 local backGroup
 local mainGroup
+local turnGroup
+local winGroup
 local uiGroup
 
 local deck = {}			-- main deck face down
@@ -355,10 +369,38 @@ local plrField = {}		-- player's field
 local oppField = {}		-- opponent's field
 local gameMat = {}		-- cards face up
 
-local turn				-- plr or opp's turn
+local turn				-- 1 if plr's turn, 2 if opp's turn
+local winner = 0        -- 0 if no winner yet, 1 if plr, 2 if opp, 3 if draw
+
+local pTurn = "You first!"              -- player goes first
+local oTurn = "You're second!"          -- opponent goes first
+local pWin = "You win!"                 -- player win string
+local oWin = "You lose!"                -- opponenent win string
+local dWin = "Game is a draw!"          -- draw string
+
+
 
 local function gotoMenu()
     composer.gotoScene("menu", {time = 800, effect = "crossFade"})
+end
+
+local function winnerPopup(str)
+    local winBackground = display.newImageRect(winGroup, "images/cardblank.png", 270, 200)
+    winBackground.x = display.contentCenterX
+    winBackground.y = display.contentCenterY - 50
+    local winStr = display.newText(winGroup, str, display.contentCenterX, display.contentCenterY - 100, native.systemFont, 35)
+    local menuButton = display.newText(winGroup, "MENU", display.contentCenterX, display.contentCenterY, native.systemFont, 30)
+
+    -- Tap event listeners for menu button
+    menuButton:addEventListener("tap", gotoMenu)
+end
+
+local function checkWinner(num) 
+    if (num == 1) then return pWin
+    elseif (num == 2) then return oWin
+    elseif (num == 3) then return dWin
+    else return ""
+    end
 end
 
 local function shuffleDeck(deck) 
@@ -374,15 +416,57 @@ end
 local function dealCards(num, loc, deck)
 	for i = 1, num do
 		table.insert(loc, deck[1])
-		print(deck[1])
 		table.remove(deck, 1)
 	end
 end
 
-local function gameInitialize()
+local function automaticWin(arr)
+    local tmp = {}
+    for i = 1, #arr, 1 do
+        tmp[i] = arr[i].set
+    end
+    table.sort(tmp)
+    local ctr = 0
+    for i = 1, #tmp - 3, 1 do 
+        if ((tmp[i] == tmp[i+1]) and (tmp[i] == tmp[i+2]) 
+            and (tmp[i] == tmp[i+3])) then
+            return true
+        end
+    end
+    return false
+end
+
+local function threeCardDisadvantage(arr)
+    local tmp = {}
+    for i = 1, #arr, 1 do
+        tmp[i] = arr[i].set
+    end
+    table.sort(tmp)
+    for i = 1, #tmp - 2, 1 do 
+        if ((tmp[i] == tmp[i+1]) and (tmp[i] == tmp[i+2])) then
+            return true
+        end
+    end
+    return false
+end
+
+local function gameInitialize(deck)
 	-- Create an array of numbers from 1 - 48 for deck
+    local ct = 1
+    local st = 1
+    local tmp = {}
 	for i = 1, 48, 1 do
-		table.insert(deck, i)
+		--table.insert(deck, i)
+        if (ct == 5) then 
+            st = st + 1
+            ct = 1
+        end
+        tmp.card = i
+        tmp.set = st
+        --table.insert(deck, tmp)
+        deck[i] = tmp
+        ct = ct + 1
+        tmp = {}
 	end
 
 	-- Randomly jumble array for deck
@@ -397,30 +481,54 @@ local function gameInitialize()
 	-- Give gameMat next 8 cards
 	dealCards(8, gameMat, deck)
 
-	-- Pick which player goes first
-	local random = math.random
-	if (random(2) == 1) then
-		turn = 1
-	else
-		turn = 2
-	end
+	-- Check if either player or gameMat has 4 of same cards 
+    local pcheck = automaticWin(plr)
+    local ocheck = automaticWin(opp)
+    local gcheck = automaticWin(gameMat)
 
-	-- TODO: Check if either player or gameMat has 4 of same cards 
-	-- TODO: Determine automatic winner
-	-- TODO: Check if either player or gameMat has 3 of same cards
-	-- TODO: Handle 3 card situation
+    -- Off chance that all 2 or more are automatic wins or gcheck wins, then draw
+    if ((pcheck and ocheck and gcheck) or (pcheck and ocheck) or
+        (pcheck and gcheck) or (ocheck and gcheck) or gcheck)
+        then winner = 3
+    elseif (pcheck) then winner = 1
+    elseif (ocheck) then winner = 2
+    else winner = 0 
+    end
+
+    local check = checkWinner(winner)
+    if (check ~= "") then
+        display.remove(turnGroup)
+        winnerPopup(check)
+    end
+    
+	-- Check if either player or gameMat has 3 of same cards
+    local p3check = threeCardDisadvantage(plr)
+    local o3check = threeCardDisadvantage(opp)
+    local g3check = threeCardDisadvantage(gameMat)
+
+    -- Change three flag in gameInfo for respective player
+    -- TODO: Do something to show player what the disadvantage is
+    if (p3check) then
+        gameInfo.plrInfo.three = true
+    end
+    if (o3check) then
+        gameInfo.oppInfo.three = true
+    end
+
+	-- TODO: Handle 3 card situation on gamemat
+
 end
 
 local function gameDisplay()
 	-- Display the player's cards at bottom
 	for i = 1, #plr, 1 do
-		local plrCard = display.newImageRect(mainGroup, objectSheet, plr[i], 60, 90)
+		local plrCard = display.newImageRect(plrGroup, objectSheet, plr[i].card, 60, 90)
 		plrCard.x = display.contentWidth - 268 + (24 * (i - 1))
 		plrCard.y = display.contentHeight - 40
 	end
 	-- Display the opponent's back facing cards at top
 	for i = 1, #opp, 1 do
-		local oppCard = display.newImageRect(mainGroup, "images/cardblank.png", 20, 30)
+		local oppCard = display.newImageRect(oppGroup, "images/cardblank.png", 20, 30)
 		oppCard.x = display.contentWidth - 285 + (18 * (i - 1))
 		oppCard.y = 15
 	end
@@ -428,18 +536,92 @@ local function gameDisplay()
 	-- TODO: Display the opponent's field
 
 	-- Display the facedown deck
-	local deckCard = display.newImageRect(mainGroup, "images/cardblank.png", 27, 40)
+	local deckCard = display.newImageRect(matGroup, "images/cardblank.png", 27, 40)
 	deckCard.x = display.contentCenterX
 	deckCard.y = display.contentCenterY - 30
 
 	-- Display the game mat
 	for i = 1, #gameMat, 1 do
-		local gameCard = display.newImageRect(mainGroup, objectSheet, gameMat[i], 27, 40)
+		local gameCard = display.newImageRect(matGroup, objectSheet, gameMat[i].card, 27, 40)
 		gameCard.x = gameMatLoc[i].x
 		gameCard.y = gameMatLoc[i].y
 	end
 
 end
+
+local function gameStart()
+    gameDisplay()
+    display.remove(turnGroup)
+end
+
+local function turnPopup(str)
+    local turnBackground = display.newImageRect(turnGroup, "images/cardblank.png", 270, 200)
+    turnBackground.x = display.contentCenterX
+    turnBackground.y = display.contentCenterY - 50
+    local turnStr = display.newText(turnGroup, str, display.contentCenterX, display.contentCenterY - 100, native.systemFont, 35)
+    
+    -- Tap event listeners for menu button
+    turnBackground:addEventListener("tap", gameStart)
+end
+
+local function chooseTurn()
+    -- Pick which player goes first
+    local random = math.random
+    if (random(2) == 1) then
+        turn = 1
+        turnPopup(pTurn)
+    else
+        turn = 2
+        turnPopup(oTurn)
+    end
+end
+
+
+local function playerTurn()
+    -- TODO: Event listener that drags card to card on game mat
+    for i = 1, #plr, 1 do
+        local plrCard = display.newImageRect(plrGroup, objectSheet, plr[i].card, 60, 90)
+        plrCard.x = display.contentWidth - 268 + (24 * (i - 1))
+        plrCard.y = display.contentHeight - 40
+        --plrCard:addEventListener("tap", )
+    end
+    -- Once event listener detects event, update card display
+        -- Dragged card appears on game mat
+        -- Player's hand no longer has card
+            -- Done by calling gameDisplay after updating array
+    -- Event listener for tapping gamemat deck
+    -- Once event listener detects event, update card display
+        -- Check for matches
+        -- Timer delay, then update card display
+    -- Update pt system 
+
+    -- Toggle turn to opponent
+    turn = 2
+end
+
+local function opponentTurn()
+    -- TODO: Decide on which card to play based on given cards
+    -- Update card display
+        -- Playing card appears on game mat
+        -- Opponent's hand no longer has card
+    -- Timer delay, update opp hand with new card
+    -- Timer delay, then update card display
+    -- Update pt system
+
+    -- Toggle turn to player
+    turn = 1
+end
+
+local function gameLoop()
+    if (turn == 1) then         -- Player's turn
+        playerTurn()
+    else                        -- Opponent's turn
+        opponentTurn()
+    end
+
+    -- TODO: Winner logic
+end
+
 
 -- -----------------------------------------------------------------------------------
 -- Scene event functions
@@ -455,8 +637,20 @@ function scene:create( event )
 	backGroup = display.newGroup()  -- Display group for the background image
 	sceneGroup:insert(backGroup)  	-- Insert into the scene's view group
 
-	mainGroup = display.newGroup()  -- Display group for the ship, asteroids, lasers, etc.
-	sceneGroup:insert(mainGroup)  	-- Insert into the scene's view group
+    matGroup = display.newGroup()   -- Display group for the cards on game mat
+    sceneGroup:insert(matGroup)     -- Insert into the scene's view group 
+
+    oppGroup = display.newGroup()   -- Display group for the opponent cards 
+    sceneGroup:insert(oppGroup)     -- Insert into the scene's view group
+
+    plrGroup = display.newGroup()   -- Display group for the player's cards
+    sceneGroup:insert(plrGroup)     -- Insert into the scene's view group
+
+    turnGroup = display.newGroup()
+    sceneGroup:insert(turnGroup)
+
+    winGroup = display.newGroup()
+    sceneGroup:insert(winGroup)
 
 	uiGroup = display.newGroup()    -- Display group for UI objects like the score
 	sceneGroup:insert(uiGroup)    	-- Insert into the scene's view group
@@ -470,9 +664,6 @@ function scene:create( event )
 	
 	-- Tap event listeners for menu button
 	menuButton:addEventListener("tap", gotoMenu)
-	
-	gameInitialize()
-	gameDisplay()
 
 end
 
@@ -485,9 +676,13 @@ function scene:show( event )
 
 	if ( phase == "will" ) then
 		-- Code here runs when the scene is still off screen (but is about to come on screen)
+        gameInitialize(deck)
 
 	elseif ( phase == "did" ) then
 		-- Code here runs when the scene is entirely on screen
+        gameDisplay()
+        timer.performWithDelay(1000, chooseTurn)
+        gameLoopTimer = timer.performWithDelay(500, gameLoop, 0)
 
 	end
 end
@@ -501,7 +696,7 @@ function scene:hide( event )
 
 	if ( phase == "will" ) then
 		-- Code here runs when the scene is on screen (but is about to go off screen)
-
+        timer.cancel(gameLoopTimer)
 
 	elseif ( phase == "did" ) then
 		-- Code here runs immediately after the scene goes entirely off screen
